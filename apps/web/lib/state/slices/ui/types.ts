@@ -39,6 +39,13 @@ export type ConnectionState = {
 export type MobileKanbanState = {
   /** Last selected workflow step id, keyed by workflow id (phone board). */
   activeStepIdByWorkflowId: Record<string, string>;
+  /**
+   * The workflow the phone board is currently showing, published by
+   * `SwimlaneContainer` so the menu drawer configures the same board the user
+   * is looking at rather than deriving a second notion of focus. Null off the
+   * phone kanban.
+   */
+  focusedWorkflowId: string | null;
   isMenuOpen: boolean;
   isSearchOpen: boolean;
 };
@@ -200,6 +207,13 @@ export type AppSidebarState = {
    * the same dialog instance. Transient, never persisted.
    */
   improveDialogOpen: boolean;
+  /**
+   * Open state of the workspace picker in the expanded sidebar header. Owned by
+   * the store so the global WORKSPACE_PICKER shortcut can open the menu without
+   * reaching into the DOM. Transient, never persisted. Only the sidebar-header
+   * picker instance binds to it — the mobile sheet keeps its own local state.
+   */
+  workspacePickerOpen: boolean;
 };
 
 export type UISliceState = {
@@ -258,6 +272,7 @@ export type UISliceActions = {
   setMobileKanbanActiveStep: (workflowId: string, stepId: string) => void;
   setMobileKanbanMenuOpen: (open: boolean) => void;
   setMobileKanbanSearchOpen: (open: boolean) => void;
+  setMobileKanbanFocusedWorkflow: (workflowId: string | null) => void;
   setMobileSessionPanel: (sessionId: string, panel: MobileSessionPanel) => void;
   setMobileSessionReview: (sessionId: string, mrKey: string | null) => void;
   setMobileSessionTaskSwitcherOpen: (open: boolean) => void;
@@ -348,6 +363,11 @@ export type UISliceActions = {
   toggleAppSidebarSettingsMode: () => void;
   /** Open/close the shared Improve Kandev dialog (footer + New Task routing). */
   setImproveDialogOpen: (open: boolean) => void;
+  /**
+   * Open/close the sidebar-header workspace picker. Opening force-expands the
+   * sidebar, since the trigger renders only in the expanded header.
+   */
+  setWorkspacePickerOpen: (open: boolean) => void;
   /** Record multiple sidebar badge acknowledgements with one localStorage merge. */
   acknowledgeAgentErrors: (stamps: Record<string, string>) => void;
   /** Record that `stamp` has been dismissed for `sessionId`. */

@@ -105,8 +105,30 @@ SQLite and PostgreSQL migrations backfill canonical rows from
 `task_session_worktrees`. Sessions with a valid `task_environment_id` retain it.
 Legacy sessions are assigned to the matching existing environment or to a
 normalized task-owned environment created for their connected worktree group.
-Incompatible owners, paths, repository identities, or session groupings fail
-closed with a diagnostic.
+Canonical `task_environment_repos` rows take precedence when the legacy flat
+environment fields or session references repeat the same physical worktree.
+When no canonical repository row exists, the surviving task environment's flat
+worktree fields take precedence over a legacy session reference to the same
+physical `worktree_id`. This source precedence applies regardless of session
+lifecycle state: path or branch drift on a lower-precedence row does not create
+a second owner when the physical identity is unchanged.
+A legacy session's worktree is normalized onto the environment the session
+resolves to, which is not always an environment owned by the session's own
+task: workspace-group members, subtasks inheriting a parent workspace, and
+tasks that received an environment through ownership handoff share one
+environment across tasks. Such a borrowing task gains no environment of its
+own, and the shared physical worktree keeps exactly one owner.
+Legacy session rows marked `deleted` (or carrying `deleted_at`) and stale
+references from terminal sessions are historical evidence, not additional
+owners. A terminal reference bypasses validation when a higher-precedence
+task-owned source exists for the same repository and branch slot. This source
+can be a canonical repository row or the surviving flat environment row. The
+higher-precedence source remains the owner when the terminal reference carries
+a different physical `worktree_id`. A terminal-only reference without a
+higher-precedence owner still requires compatible identity, path, branch, and
+repository data. A non-terminal session with a different physical identity
+also requires compatible data. Unresolved ownership fails closed with a
+diagnostic.
 
 After backfill validation, the same upgrade drops `task_session_worktrees` and
 the deprecated flat worktree columns from `task_environments`. It also removes
@@ -201,6 +223,16 @@ remain the authorization boundary for physical cleanup.
 - If migration cannot determine a single compatible owner/path, startup fails
   closed, the transaction rolls back, and the pre-upgrade database remains
   authoritative instead of authorizing future deletion from ambiguous data.
+- Historical deleted session-worktree rows and stale references from terminal
+  sessions do not block migration when a higher-precedence task-owned source
+  exists for the same repository and branch slot. The higher-precedence source
+  remains authoritative.
+- A legacy session row that repeats a higher-precedence physical `worktree_id`
+  cannot block migration solely because its path or branch metadata is stale,
+  including when the session is resumable. The higher-precedence repository or
+  flat environment metadata remains authoritative.
+- A session bound to another task's environment does not block migration and
+  does not create a second owner for the shared worktree.
 - If migration fails after shadow tables are populated or after legacy DDL has
   begun, the database transaction restores the complete legacy schema and data.
 - If SQLite cannot create its pre-upgrade snapshot, startup stops before the
@@ -254,6 +286,35 @@ remain the authorization boundary for physical cleanup.
 - **GIVEN** session/worktree creation and task deletion begin concurrently,
   **WHEN** one reserves the task row first, **THEN** the resource is either fully
   included in cleanup or rejected and compensated; it cannot become untracked.
+- **GIVEN** a legacy database contains deleted session-worktree history and a
+  canonical task-owned repository row for the same workspace, **WHEN** the new
+  binary starts, **THEN** the cutover completes, preserves the canonical row,
+  and removes the legacy schema without requiring manual database edits.
+- **GIVEN** a legacy flat environment path differs from the canonical repository
+  row for the same physical worktree, **WHEN** the new binary starts, **THEN**
+  the canonical repository path and branch are retained and the cutover
+  completes.
+- **GIVEN** a resumable legacy session and a canonical task-owned repository row
+  carry the same `worktree_id` but different path or branch metadata, **WHEN**
+  the new binary starts, **THEN** the canonical metadata is retained and the
+  cutover completes without changing the session lifecycle state.
+- **GIVEN** no canonical repository row exists and a legacy session reference
+  repeats the surviving task environment's `worktree_id` with stale path or
+  branch metadata, **WHEN** the new binary starts, **THEN** the flat environment
+  metadata is retained and the cutover completes.
+- **GIVEN** a terminal legacy session references an older physical worktree for
+  the surviving flat environment's repository slot, **WHEN** the new binary
+  starts, **THEN** the flat environment remains the owner and the cutover
+  completes.
+- **GIVEN** a legacy session of one task is bound to another task's environment
+  and carries a session-worktree row for that shared workspace, **WHEN** the new
+  binary starts, **THEN** the worktree is normalized onto the owning task's
+  environment, both sessions keep that environment, the borrowing task gains no
+  environment of its own, and the cutover completes.
+- **GIVEN** a non-terminal session references a worktree that conflicts with
+  the canonical owner and cannot be reconciled, **WHEN** the new binary starts,
+  **THEN** startup fails closed, the transaction rolls back, and the verified
+  pre-upgrade backup remains the recovery source.
 
 ## Out of Scope
 

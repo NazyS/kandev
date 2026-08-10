@@ -78,6 +78,7 @@ type UpdateUserSettingsRequest struct {
 	AzureDevOpsBrowsePreferences    **json.RawMessage
 	DefaultUtilityAgentID           *string
 	DefaultUtilityModel             *string
+	DefaultUtilityAgentProfileID    *string
 	KeyboardShortcuts               *map[string]interface{}
 	TerminalLinkBehavior            *string
 	TerminalFontFamily              *string
@@ -86,6 +87,7 @@ type UpdateUserSettingsRequest struct {
 	SystemMetricsDisplay            *SystemMetricsDisplaySettingsPatch
 	AppStatusBarOrder               *models.AppStatusBarOrder
 	VoiceMode                       *models.VoiceModeSettings
+	KanbanHiddenStepIDs             *map[string][]string
 }
 
 type SystemMetricsDisplaySettingsPatch struct {
@@ -133,6 +135,15 @@ func (s *Service) GetDefaultUtilitySettings(ctx context.Context) (agentID, model
 		return "", "", err
 	}
 	return settings.DefaultUtilityAgentID, settings.DefaultUtilityModel, nil
+}
+
+// GetDefaultUtilityAgentProfileID returns the profile used by new built-in utility actions.
+func (s *Service) GetDefaultUtilityAgentProfileID(ctx context.Context) (string, error) {
+	settings, err := s.repo.GetUserSettings(ctx, s.defaultUser)
+	if err != nil {
+		return "", err
+	}
+	return settings.DefaultUtilityAgentProfileID, nil
 }
 
 func (s *Service) UpdateUserSettings(ctx context.Context, req *UpdateUserSettingsRequest) (*models.UserSettings, error) {
@@ -263,6 +274,54 @@ func applyWorkspaceAndTaskListPreferences(settings *models.UserSettings, req *Up
 	if req.EnablePreviewOnClick != nil {
 		settings.EnablePreviewOnClick = *req.EnablePreviewOnClick
 	}
+	if req.KanbanHiddenStepIDs != nil {
+		if err := validateKanbanHiddenStepIDs(*req.KanbanHiddenStepIDs); err != nil {
+			return err
+		}
+		settings.KanbanHiddenStepIDs = *req.KanbanHiddenStepIDs
+	}
+	return nil
+}
+
+const (
+	maxKanbanHiddenStepWorkflows      = 200
+	maxKanbanHiddenStepIDsPerWorkflow = 200
+	// maxKanbanHiddenStepIDsTotalBytes matches maxUserPreferenceBlobBytes, the
+	// sibling cap for other free-form settings blobs. The count caps above
+	// bound shape (how many entries), not size (how long each string is); an
+	// attacker who stays under both count limits could otherwise still submit
+	// a handful of multi-megabyte ids. This bounds total content regardless
+	// of shape, and — unlike an HTTP-only body-size guard — it runs inside
+	// validateKanbanHiddenStepIDs, which both the REST and WebSocket update
+	// paths call, so it isn't bypassable by whichever transport skips a
+	// transport-level guard.
+	maxKanbanHiddenStepIDsTotalBytes = maxUserPreferenceBlobBytes
+)
+
+// validateKanbanHiddenStepIDs bounds the per-workflow hidden-step-id map so a
+// single settings write cannot grow the users.settings JSON blob unboundedly
+// on the shared single-writer SQLite connection.
+func validateKanbanHiddenStepIDs(hidden map[string][]string) error {
+	if len(hidden) > maxKanbanHiddenStepWorkflows {
+		return fmt.Errorf("kanban_hidden_step_ids: max %d workflows allowed", maxKanbanHiddenStepWorkflows)
+	}
+	totalBytes := 0
+	for workflowID, ids := range hidden {
+		if len(ids) > maxKanbanHiddenStepIDsPerWorkflow {
+			return fmt.Errorf(
+				"kanban_hidden_step_ids[%s]: max %d step ids allowed",
+				workflowID,
+				maxKanbanHiddenStepIDsPerWorkflow,
+			)
+		}
+		totalBytes += len(workflowID)
+		for _, id := range ids {
+			totalBytes += len(id)
+		}
+		if totalBytes > maxKanbanHiddenStepIDsTotalBytes {
+			return fmt.Errorf("kanban_hidden_step_ids: max %d bytes allowed", maxKanbanHiddenStepIDsTotalBytes)
+		}
+	}
 	return nil
 }
 
@@ -326,6 +385,9 @@ func applyUtilityPreferences(settings *models.UserSettings, req *UpdateUserSetti
 	}
 	if req.DefaultUtilityModel != nil {
 		settings.DefaultUtilityModel = strings.TrimSpace(*req.DefaultUtilityModel)
+	}
+	if req.DefaultUtilityAgentProfileID != nil {
+		settings.DefaultUtilityAgentProfileID = strings.TrimSpace(*req.DefaultUtilityAgentProfileID)
 	}
 }
 
@@ -737,6 +799,7 @@ func (s *Service) publishUserSettingsEvent(ctx context.Context, settings *models
 		"azure_devops_browse_preferences":     settings.AzureDevOpsBrowsePreferences,
 		"default_utility_agent_id":            settings.DefaultUtilityAgentID,
 		"default_utility_model":               settings.DefaultUtilityModel,
+		"default_utility_agent_profile_id":    settings.DefaultUtilityAgentProfileID,
 		"keyboard_shortcuts":                  settings.KeyboardShortcuts,
 		"terminal_link_behavior":              settings.TerminalLinkBehavior,
 		"terminal_font_family":                settings.TerminalFontFamily,
@@ -745,6 +808,7 @@ func (s *Service) publishUserSettingsEvent(ctx context.Context, settings *models
 		"system_metrics_display":              settings.SystemMetricsDisplay,
 		"app_status_bar_order":                settings.AppStatusBarOrder,
 		"voice_mode":                          settings.VoiceMode,
+		"kanban_hidden_step_ids":              settings.KanbanHiddenStepIDs,
 		"updated_at":                          settings.UpdatedAt.Format(time.RFC3339),
 	}
 	if err := s.eventBus.Publish(ctx, events.UserSettingsUpdated, bus.NewEvent(events.UserSettingsUpdated, "user-service", data)); err != nil {

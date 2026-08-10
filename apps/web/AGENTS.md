@@ -4,7 +4,7 @@ Scoped guidance for `apps/web/`. Repo-wide rules (commit format, code-quality li
 
 ## Plugin authoring
 
-For plugin UI work, begin with the [canonical plugin authoring guide](../../docs/public/plugins-authoring.md). Follow: choose recipe → edit `manifest.yaml` → implement → validate → package → smoke test. The frontend contract pair is `../../docs/plans/plugins/PLUGIN-API.md` plus `lib/plugins/types.ts`; concrete shared Host UI exports are in `lib/plugins/host-api.ts`, and registration/cleanup behavior is in `lib/plugins/registry.ts` and `lib/plugins/host.ts`. Keep the guide and that contract pair synchronized; do not invent hooks such as task panels, task-menu actions, per-user `host.storage`, rich-text components, or Kanban-card injection when they are absent from the current source.
+For plugin UI work, begin with the [canonical plugin authoring guide](../../docs/public/plugins-authoring.md). Follow: choose recipe → edit `manifest.yaml` → implement → validate → package → smoke test. The frontend contract pair is `../../docs/plans/plugins/PLUGIN-API.md` plus `lib/plugins/types.ts`; concrete shared Host UI exports are in `lib/plugins/host-api.ts`, and registration/cleanup behavior is in `lib/plugins/registry.ts` and `lib/plugins/host.ts`. Treat that pair as the source of truth for which hooks exist, and extend it in the same change rather than shipping a signature it does not declare.
 
 ## UI Components
 
@@ -220,6 +220,9 @@ locale is active, and never updates on a switch — and the pseudo-locale cannot
 see it, because the text _is_ translated, just frozen. Store the key and resolve
 at render, or make the value a component. `check-module-scope-t.mjs` enforces it.
 
+UI punctuation: avoid Unicode em dash (U+2014) in user-facing copy and locale values.
+`pnpm run i18n:check` enforces periods, colons, commas, semicolons, and parentheses.
+
 `pnpm lint` fails on hardcoded UI strings (`i18next/no-literal-string` is an
 **error**), but **only on the `i18nGuardFiles` allowlist** in
 `eslint.i18n.options.mjs`, which covers every area the migration touched. It
@@ -236,14 +239,11 @@ and a file you modified is judged on the lines you touched. Untouched literals a
 never reported, so it cannot ask you to migrate code you did not write — the same
 contract as `golangci-lint --new-from-rev` for Go.
 
-The rule **only sees literals in JSX** — `confirm()` arguments and copy in plain
-`.ts` helpers are invisible to it — and it **skips anything assigned to a
-SCREAMING_CASE identifier**, so `const ROWS = [{ label: "Disk usage" }]` passes
-silently. A clean lint is not proof a file is done. `pnpm run i18n:check` gates key/catalog
-drift, `<Trans>` tag indices, inline plurals and module-scope `t()`, and the
-**pseudo-locale** (Settings → General → Appearance, dev/e2e) is the completeness
-check — any plain-English text under it was never externalized. The tooling needs
-**Node 24**. Full guide:
+The rule sees JSX literals but misses `confirm()` and plain `.ts` helper copy; it
+also skips SCREAMING_CASE constants, so review config tables by eye. `i18n:check`
+gates key/catalog drift, `<Trans>` indices, inline plurals, module-scope `t()`, and
+the **pseudo-locale** (Settings → General → Appearance) completeness check. It
+needs **Node 24**. Full guide:
 [`docs/i18n.md`](../../docs/i18n.md); spec:
 [`docs/specs/platform/i18n.md`](../../docs/specs/platform/i18n.md).
 
@@ -293,8 +293,7 @@ plugin leaks a stale registration.
 
 ## Testing notes
 
-- jsdom drops `secure` cookies over `http`, so `document.cookie` reads back empty. To assert a cookie write in a Vitest unit test, intercept the setter with `Object.defineProperty(document, "cookie", { set: ... })` and restore it after.
-- jsdom synthetic mouse events do not reliably open Radix Tooltip. In component tests, use
-  `TooltipProvider` and assert keyboard focus; cover pointer hover in Playwright with `locator.hover()`
-  and a visible `role="tooltip"`, keeping regressions that jsdom cannot exercise.
-- In Playwright tests, avoid strict locators that assume only one `terminal-panel` or `.xterm` exists. Mobile and dockview layouts can mount multiple terminal instances; scope to the active panel or use `.first()` / `.last()` deliberately with a comment or helper. Shared E2E helpers that inspect mounted React/DOM internals must also be scoped to the active panel/container, not global selectors, because hidden or stale mounted panels can coexist in dock/mobile layouts.
+- jsdom secure cookies need cookie-setter interception; Radix Tooltip tests use
+  keyboard focus, while Playwright covers pointer hover with `locator.hover()`.
+- Scope terminal selectors to the active panel/container; mobile and dockview may
+  mount multiple instances, so shared helpers must not use global selectors.

@@ -62,9 +62,9 @@ func (t *taskWorktreeTargets) mergeLegacyEnvRepo(row legacyEnvRepo) error {
 // environment.
 func (t *taskWorktreeTargets) mergeFlatEnv(env *legacyEnv) error {
 	if existing := t.targetForWorktree(env.worktreeID); existing != nil {
-		if err := existing.verifyWorktree(env.worktreeID, env.worktreePath, env.worktreeBranch); err != nil {
-			return err
-		}
+		// task_environment_repos is the canonical source. The deprecated flat
+		// fields can retain the old task-root path or branch after a repository
+		// row has been updated, so never let them overwrite canonical metadata.
 		if existing.status == "" {
 			existing.status = worktreeRepoStatusActive
 		}
@@ -80,14 +80,20 @@ func (t *taskWorktreeTargets) mergeFlatEnv(env *legacyEnv) error {
 // mergeSessionWorktree folds a legacy session-worktree row into the task's
 // targets. Matching is by worktree identity first (legacy rows could carry an
 // empty repository_id), then by (repository, branch slug).
-func (t *taskWorktreeTargets) mergeSessionWorktree(wt legacySessionWorktree) error {
+func (t *taskWorktreeTargets) mergeSessionWorktree(wt legacySessionWorktree, historical bool) error {
 	if wt.worktreeID == "" {
 		return nil
 	}
 	if existing := t.targetForWorktree(wt.worktreeID); existing != nil {
+		if historical {
+			return nil
+		}
 		return existing.verifyWorktree(wt.worktreeID, wt.worktreePath, wt.worktreeBranch)
 	}
 	target := t.rowForKey(wt.repositoryID, wt.branchSlug)
+	if historical && target.worktreeID != "" {
+		return nil
+	}
 	status := wt.status
 	if status == "" {
 		status = worktreeRepoStatusActive
@@ -260,16 +266,23 @@ func (r *Repository) validateCutover(c *worktreeCutover, tx *sqlx.Tx) error {
 	}
 
 	// Every session that referenced a worktree must resolve to an
-	// environment that owns that worktree.
+	// environment that owns that worktree. The owning environment can belong
+	// to another task when the session borrows a shared workspace.
 	for _, wt := range c.sessionWts {
+		if c.isSupersededSessionWorktree(wt) {
+			continue
+		}
 		envID := c.sessionEnvIDs[wt.sessionID]
 		if envID == "" {
 			return fmt.Errorf("cutover: session %s lost its environment", wt.sessionID)
 		}
-		targets, ok := c.tasks[c.sessionTasks[wt.sessionID]]
+		ownerTaskID := c.sessionOwnerTaskID(wt.sessionID)
+		targets, ok := c.tasks[ownerTaskID]
 		if !ok || targets.envID != envID || !targets.ownsWorktree(wt.worktreeID) {
-			return fmt.Errorf("cutover: session %s worktree %s has no environment-repository owner",
-				wt.sessionID, wt.worktreeID)
+			return fmt.Errorf(
+				"cutover: session %s worktree %s has no environment-repository owner "+
+					"(session task %s, environment %s owned by task %s)",
+				wt.sessionID, wt.worktreeID, c.sessionTasks[wt.sessionID], envID, ownerTaskID)
 		}
 	}
 
@@ -317,8 +330,14 @@ func (c *worktreeCutover) worktreeInventoryMismatch() string {
 // rows, and flat environment columns.
 func (c *worktreeCutover) legacyWorktreeInventory() map[string]bool {
 	inventory := make(map[string]bool)
+	canonicalIDs := make(map[string]bool)
+	for _, row := range c.envRepos {
+		if row.worktreeID != "" {
+			canonicalIDs[row.worktreeID] = true
+		}
+	}
 	for _, wt := range c.sessionWts {
-		if wt.worktreeID == "" || wt.status == worktreeRepoStatusDeleted || wt.deletedAt != nil {
+		if wt.worktreeID == "" || c.isSupersededSessionWorktree(wt) {
 			continue
 		}
 		inventory[worktreeInventoryKey(wt.worktreeID, wt.worktreePath, wt.worktreeBranch)] = true
@@ -330,7 +349,7 @@ func (c *worktreeCutover) legacyWorktreeInventory() map[string]bool {
 		inventory[worktreeInventoryKey(row.worktreeID, row.worktreePath, row.worktreeBranch)] = true
 	}
 	for _, env := range c.envs {
-		if env.worktreeID == "" || c.loserEnvIDs[env.id] {
+		if env.worktreeID == "" || c.loserEnvIDs[env.id] || canonicalIDs[env.worktreeID] {
 			continue
 		}
 		inventory[worktreeInventoryKey(env.worktreeID, env.worktreePath, env.worktreeBranch)] = true

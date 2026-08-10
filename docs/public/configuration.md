@@ -58,7 +58,7 @@ Some common camelCase keys have explicit compatibility aliases. Use the document
 | `server.readTimeout` | `KANDEV_SERVER_READTIMEOUT` | `30` | HTTP read timeout in seconds. |
 | `server.writeTimeout` | `KANDEV_SERVER_WRITETIMEOUT` | `30` | HTTP write timeout in seconds. |
 | `server.webInternalUrl` | `KANDEV_WEB_INTERNAL_URL` | empty | Development reverse-proxy target for a separately running web app. Installed releases normally serve embedded assets. |
-| `server.webTitlePrefix` | `KANDEV_WEB_TITLE_PREFIX` | empty | Prefixes the browser tab title as `<prefix> Kandev` (for example `TEST` renders `TEST Kandev`), so several instances stay distinguishable in adjacent tabs. Empty keeps the plain `Kandev` title. |
+| `server.webTitlePrefix` | `KANDEV_WEB_TITLE_PREFIX` | empty | Prefixes the browser tab title as `<prefix> Kandev` (for example `TEST` renders `TEST Kandev`), so several instances stay distinguishable in adjacent tabs. `make dev` defaults to `Dev`; `make start-debug` keeps production defaults, enables diagnostics, and defaults to `Debug`; PR previews use `Preview`. An explicit value overrides these defaults. Empty keeps the plain `Kandev` title. |
 
 The default host exposes the server on every interface even though the CLI prints a `localhost` URL. The current local product path must not be treated as an authenticated multi-user perimeter. For remote access, bind to loopback and use a trusted authenticated tunnel/proxy, or isolate the network at the deployment layer.
 
@@ -80,6 +80,8 @@ The default host exposes the server on every interface even though the CLI print
 SQLite is the supported default and enables WAL mode. PostgreSQL deployments must provision the database, network policy, TLS trust, backups, and credentials before starting Kandev. Passing the password in an environment variable avoids putting it in YAML but still exposes it to processes/administrators allowed to inspect the environment; use your platform's secret injection controls.
 
 `database.path` is an advanced override. Persistence honors it, but the current **Settings → System → Database** and **Backups** services derive their displayed path, WAL files, backup source, and restore destination from `<home>/data/kandev.db`. Those UI operations are therefore not reliable for a custom SQLite location. Use operator-managed backup/restore for a custom path and verify the actual database path printed at startup.
+
+One backend owns a Kandev home at a time. When SQLite uses a custom path outside that home, the backend also owns that database path, so separate homes alone do not permit concurrent backends against one SQLite file. Use a separate home and database for an intentional second instance. Ownership is released when the backend exits.
 
 Database-only snapshots also omit `<home>/data/master.key`, the AES-256 key used to decrypt stored secrets. Preserve that owner-only key with an independently secured home/data backup; restoring the database without its matching key leaves encrypted credentials unreadable. See [Operations](./operations.md).
 
@@ -168,9 +170,17 @@ Discovery roots bound automatic filesystem traversal, so scope them narrowly. Th
 | YAML key | Environment variable | Default | Current behavior |
 |---|---|---|---|
 | `debug.devMode` | `KANDEV_DEBUG_DEV_MODE` | `false` | Enables diagnostic endpoints and agent-message debug logging. |
-| `debug.pprofEnabled` | `KANDEV_DEBUG_PPROF_ENABLED` | `false` | Legacy alias; also enables debug mode. |
+| `debug.pprofEnabled` | `KANDEV_DEBUG_PPROF_ENABLED` | `false` | Legacy diagnostics switch. It enables pprof behavior but does not select the `dev` profile. |
 
-Debug mode is high risk. It enables local diagnostic surfaces and implies `KANDEV_DEBUG_AGENT_MESSAGES=true` and `KANDEV_DEBUG_PPROF_ENABLED=true` when not explicitly locked by the environment. ACP JSONL frames include complete prompts, file content, and tool calls. Do not enable it on a shared or network-exposed backend.
+`KANDEV_DEBUG_DEV_MODE=true` selects the `dev` profile. `make dev` sets that
+selector and defaults the browser title to `Dev Kandev`. `make start-debug`
+enables pprof and debug logging without selecting the `dev` profile, and
+defaults the browser title to `Debug Kandev`. Debug mode is high risk. It
+enables local diagnostic surfaces and implies
+`KANDEV_DEBUG_AGENT_MESSAGES=true` and `KANDEV_DEBUG_PPROF_ENABLED=true` when
+not explicitly locked by the environment. ACP JSONL frames include complete
+prompts, file content, and tool calls. Do not enable it on a shared or
+network-exposed backend.
 
 ## Minimal examples
 
@@ -302,7 +312,7 @@ Copying this entire file is unnecessary and can freeze old defaults in a deploym
 | `features.auth` | `KANDEV_FEATURES_AUTH` | off | Authentication and per-user workspaces for the whole install. |
 | `features.claudeBackgroundPromptHandoff` | `KANDEV_FEATURES_CLAUDE_BACKGROUND_PROMPT_HANDOFF` | off | High-risk Claude Code experiment that exposes recognized background-only activity and admits a successor prompt. |
 | `features.claudeMidTurnSteering` | `KANDEV_FEATURES_CLAUDE_MID_TURN_STEERING` | off | High-risk Claude Code experiment that delivers a prompt into a still-generating turn (mid-turn steering) instead of queuing it, for agents advertising prompt queueing. |
-| `debug.devMode` | `KANDEV_DEBUG_DEV_MODE` (also locked by explicit legacy/debug-message vars) | off | High-risk diagnostic endpoints and ACP frame logging. |
+| `debug.devMode` | `KANDEV_DEBUG_DEV_MODE` | off | High-risk diagnostic endpoints and ACP frame logging. |
 
 UI changes are persisted in the database and require a restart. An explicitly set environment value wins and locks the UI control. Otherwise a database override wins over the embedded profile/default. Resetting a toggle removes its database override.
 

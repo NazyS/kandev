@@ -52,6 +52,9 @@ func TestApplyProfile_DefaultsToProd(t *testing.T) {
 			"false",
 		)
 	}
+	if _, ok := os.LookupEnv("KANDEV_WEB_TITLE_PREFIX"); ok {
+		t.Errorf("KANDEV_WEB_TITLE_PREFIX is set in prod; want it unset")
+	}
 }
 
 // TestApplyProfile_DevUsesDevelopmentDefaults verifies the mixed dev profile:
@@ -86,6 +89,43 @@ func TestApplyProfile_DevUsesDevelopmentDefaults(t *testing.T) {
 			"false",
 		)
 	}
+	if v := os.Getenv("KANDEV_WEB_TITLE_PREFIX"); v != "Dev" {
+		t.Errorf("KANDEV_WEB_TITLE_PREFIX = %q in dev; want %q", v, "Dev")
+	}
+}
+
+func TestApplyProfile_PprofDebugKeepsProductionProfile(t *testing.T) {
+	clearProfileSelectors(t)
+	clearProfilesYAMLVars(t)
+	t.Setenv("KANDEV_DEBUG_PPROF_ENABLED", "true")
+
+	_, env, err := ApplyProfile()
+	if err != nil {
+		t.Fatalf("ApplyProfile: %v", err)
+	}
+	if env != EnvProd {
+		t.Fatalf("env = %q with pprof-only debug; want %q", env, EnvProd)
+	}
+	if v := os.Getenv("KANDEV_FEATURES_OFFICE"); v != "false" {
+		t.Errorf("KANDEV_FEATURES_OFFICE = %q with pprof-only debug; want %q", v, "false")
+	}
+	if _, ok := os.LookupEnv("KANDEV_WEB_TITLE_PREFIX"); ok {
+		t.Error("KANDEV_WEB_TITLE_PREFIX was set by the production profile; want it unset")
+	}
+}
+
+func TestApplyProfile_ExplicitTitlePrefixWinsInDev(t *testing.T) {
+	clearProfileSelectors(t)
+	clearProfilesYAMLVars(t)
+	t.Setenv("KANDEV_DEBUG_DEV_MODE", "true")
+	t.Setenv("KANDEV_WEB_TITLE_PREFIX", "Custom")
+
+	if _, _, err := ApplyProfile(); err != nil {
+		t.Fatalf("ApplyProfile: %v", err)
+	}
+	if v := os.Getenv("KANDEV_WEB_TITLE_PREFIX"); v != "Custom" {
+		t.Errorf("ApplyProfile overwrote explicit title prefix: got %q; want %q", v, "Custom")
+	}
 }
 
 // TestApplyProfile_E2EWinsOverDev checks the documented detection
@@ -117,6 +157,9 @@ func TestApplyProfile_E2EWinsOverDev(t *testing.T) {
 			v,
 			"false",
 		)
+	}
+	if _, ok := os.LookupEnv("KANDEV_WEB_TITLE_PREFIX"); ok {
+		t.Errorf("KANDEV_WEB_TITLE_PREFIX is set in e2e; want it unset")
 	}
 }
 
@@ -230,6 +273,7 @@ func TestProfilesYAML_ContainsRequiredSections(t *testing.T) {
 		"KANDEV_FEATURES_OFFICE:",
 		"KANDEV_FEATURES_APP_STATUS_BAR:",
 		"KANDEV_FEATURES_CLAUDE_BACKGROUND_PROMPT_HANDOFF:",
+		"KANDEV_WEB_TITLE_PREFIX:",
 	} {
 		if !strings.Contains(yaml, section) {
 			t.Errorf("embedded profiles.yaml missing section/key %q; embed broken or file truncated", section)

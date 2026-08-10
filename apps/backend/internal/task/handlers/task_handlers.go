@@ -66,8 +66,20 @@ type taskCreateLastUsedRecorder interface {
 // Kanban subtask path to attach workspace-group membership and the
 // sequential blocker chain (handoffs phase 5). Optional — nil disables
 // post-create attachment, matching the pre-handoffs behaviour.
+//
+// Wiring a HandoffService also re-installs the per-user task guard on it. That
+// is not a convenience: this setter is what makes the archive / delete / unarchive
+// routes call the cascade *instead of* Service.ArchiveTask / DeleteTask, and the
+// cascade walks the task repository directly, so it inherits none of their
+// authorizeTaskID checks. Installing the checker here means the substitution
+// cannot silently unscope those routes. The checker is a no-op for identity-less
+// internal callers (the integration watch-reset paths), exactly as it is
+// everywhere else.
 func (h *TaskHandlers) SetHandoffService(svc *service.HandoffService) {
 	h.handoffSvc = svc
+	if svc != nil && h.service != nil {
+		svc.SetTaskAccessChecker(h.service.AuthorizeTaskAccess)
+	}
 }
 
 func (h *TaskHandlers) SetWorkspaceQuarantineRestorer(restorer WorkspaceQuarantineRestorer) {
@@ -126,6 +138,11 @@ func (h *TaskHandlers) registerHTTP(router *gin.Engine) {
 	api := router.Group("/api/v1")
 	api.GET("/workflows/:id/tasks", h.httpListTasks)
 	api.GET("/workspaces/:id/tasks", h.httpListTasksByWorkspace)
+	// Task create-idempotency (docs/specs/tasks/external-id-idempotency):
+	// side-effect-free lookup, and an operator-only release. Both take
+	// external_id as a query parameter.
+	api.GET("/workspaces/:id/tasks/by-external-id", h.httpGetTaskByExternalID)
+	api.DELETE("/workspaces/:id/tasks/by-external-id", h.httpReleaseTaskExternalID)
 	api.GET("/tasks/:id", h.httpGetTask)
 	api.GET("/tasks/:id/context", h.httpGetTaskContext)
 	api.GET("/task-sessions/:id", h.httpGetTaskSession)

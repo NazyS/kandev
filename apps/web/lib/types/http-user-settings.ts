@@ -93,6 +93,7 @@ export type UserSettings = {
   azure_devops_browse_preferences?: unknown;
   default_utility_agent_id?: string;
   default_utility_model?: string;
+  default_utility_agent_profile_id?: string;
   keyboard_shortcuts?: Record<string, { key: string; modifiers?: Record<string, boolean> }>;
   terminal_link_behavior?: string;
   terminal_font_family?: string;
@@ -101,6 +102,7 @@ export type UserSettings = {
   system_metrics_display?: { show_in_topbar?: boolean; simplified?: boolean };
   app_status_bar_order?: AppStatusBarOrderApi;
   voice_mode?: VoiceModeSettings;
+  kanban_hidden_step_ids?: Record<string, string[]>;
   updated_at: string;
 };
 
@@ -152,6 +154,7 @@ export type UserSettingsUpdatePayload = {
   azure_devops_browse_preferences?: object | null;
   default_utility_agent_id?: string;
   default_utility_model?: string;
+  default_utility_agent_profile_id?: string;
   keyboard_shortcuts?: Record<string, { key: string; modifiers?: Record<string, boolean> }>;
   terminal_link_behavior?: "new_tab" | "browser_panel";
   terminal_font_family?: string;
@@ -160,4 +163,5 @@ export type UserSettingsUpdatePayload = {
   system_metrics_display?: { show_in_topbar?: boolean; simplified?: boolean };
   app_status_bar_order?: AppStatusBarOrderApi;
   voice_mode?: VoiceModeSettings;
+  kanban_hidden_step_ids?: Record<string, string[]>;
 };

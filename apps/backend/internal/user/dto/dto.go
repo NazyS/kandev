@@ -59,6 +59,7 @@ type UserSettingsDTO struct {
 	AzureDevOpsBrowsePreferences    json.RawMessage                     `json:"azure_devops_browse_preferences,omitempty"`
 	DefaultUtilityAgentID           string                              `json:"default_utility_agent_id"`
 	DefaultUtilityModel             string                              `json:"default_utility_model"`
+	DefaultUtilityAgentProfileID    string                              `json:"default_utility_agent_profile_id"`
 	KeyboardShortcuts               map[string]interface{}              `json:"keyboard_shortcuts,omitempty"`
 	TerminalLinkBehavior            string                              `json:"terminal_link_behavior"`
 	TerminalFontFamily              string                              `json:"terminal_font_family"`
@@ -67,6 +68,7 @@ type UserSettingsDTO struct {
 	SystemMetricsDisplay            models.SystemMetricsDisplaySettings `json:"system_metrics_display"`
 	AppStatusBarOrder               models.AppStatusBarOrder            `json:"app_status_bar_order"`
 	VoiceMode                       models.VoiceModeSettings            `json:"voice_mode"`
+	KanbanHiddenStepIDs             map[string][]string                 `json:"kanban_hidden_step_ids"`
 	UpdatedAt                       string                              `json:"updated_at"`
 }
 
@@ -129,6 +131,7 @@ type UpdateUserSettingsRequest struct {
 	AzureDevOpsBrowsePreferences    NullableRawMessage                 `json:"azure_devops_browse_preferences,omitempty"`
 	DefaultUtilityAgentID           *string                            `json:"default_utility_agent_id,omitempty"`
 	DefaultUtilityModel             *string                            `json:"default_utility_model,omitempty"`
+	DefaultUtilityAgentProfileID    *string                            `json:"default_utility_agent_profile_id,omitempty"`
 	KeyboardShortcuts               *map[string]interface{}            `json:"keyboard_shortcuts,omitempty"`
 	TerminalLinkBehavior            *string                            `json:"terminal_link_behavior,omitempty"`
 	TerminalFontFamily              *string                            `json:"terminal_font_family,omitempty"`
@@ -137,6 +140,7 @@ type UpdateUserSettingsRequest struct {
 	SystemMetricsDisplay            *SystemMetricsDisplaySettingsPatch `json:"system_metrics_display,omitempty"`
 	AppStatusBarOrder               *models.AppStatusBarOrder          `json:"app_status_bar_order,omitempty"`
 	VoiceMode                       *models.VoiceModeSettings          `json:"voice_mode,omitempty"`
+	KanbanHiddenStepIDs             *map[string][]string               `json:"kanban_hidden_step_ids,omitempty"`
 }
 
 type SystemMetricsDisplaySettingsPatch struct {
@@ -260,6 +264,7 @@ func FromUserSettings(settings *models.UserSettings) UserSettingsDTO {
 		AzureDevOpsBrowsePreferences:    settings.AzureDevOpsBrowsePreferences,
 		DefaultUtilityAgentID:           settings.DefaultUtilityAgentID,
 		DefaultUtilityModel:             settings.DefaultUtilityModel,
+		DefaultUtilityAgentProfileID:    settings.DefaultUtilityAgentProfileID,
 		KeyboardShortcuts:               settings.KeyboardShortcuts,
 		TerminalLinkBehavior:            settings.TerminalLinkBehavior,
 		TerminalFontFamily:              settings.TerminalFontFamily,
@@ -268,6 +273,7 @@ func FromUserSettings(settings *models.UserSettings) UserSettingsDTO {
 		SystemMetricsDisplay:            settings.SystemMetricsDisplay,
 		AppStatusBarOrder:               settings.AppStatusBarOrder,
 		VoiceMode:                       settings.VoiceMode,
+		KanbanHiddenStepIDs:             settings.KanbanHiddenStepIDs,
 		UpdatedAt:                       settings.UpdatedAt.Format(time.RFC3339),
 	}
 }

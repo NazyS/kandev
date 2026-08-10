@@ -6,7 +6,7 @@
       "audiences": ["user", "operator"],
       "stability": "stable",
       "docs": ["index", "use-kandev", "cli", "desktop-app", "run-as-a-service"],
-      "sources": ["apps/cli/bin/native-shim.js", "apps/cli/src/cli.ts", "apps/desktop/src-tauri/src/lib.rs"],
+      "sources": ["apps/cli/bin/native-shim.js", "apps/backend/internal/launcher/launcher.go", "apps/desktop/src-tauri/src/lib.rs"],
       "tests": ["apps/cli/bin/native-shim.test.mjs", "apps/desktop/e2e/desktop-launch-smoke.test.mjs"]
     },
     {
@@ -93,9 +93,10 @@
       "audiences": ["user"],
       "stability": "stable",
       "docs": ["sessions-and-review", "coordination", "automation-and-mcp", "agent-communication"],
-      "sources": ["apps/backend/internal/mcp/handlers/spawn_session.go", "apps/web/components/task/dockview-session-tabs.ts"],
-      "tests": ["apps/backend/internal/mcp/handlers/spawn_session_test.go", "apps/web/components/task/dockview-session-tabs.test.ts"],
+      "sources": ["apps/backend/internal/mcp/handlers/spawn_session.go", "apps/backend/internal/mcp/handlers/parent_question.go", "apps/web/components/task/dockview-session-tabs.ts"],
+      "tests": ["apps/backend/internal/mcp/handlers/spawn_session_test.go", "apps/backend/internal/mcp/handlers/parent_question_test.go", "apps/web/components/task/dockview-session-tabs.test.ts"],
       "mcpTools": [
+        "ask_parent_question_kandev",
         "ask_user_question_kandev",
         "get_task_conversation_kandev",
         "get_task_document_kandev",
@@ -329,8 +330,8 @@
       "audiences": ["operator"],
       "stability": "stable",
       "docs": ["docker", "k8s", "run-as-a-service", "windows-support", "operations"],
-      "sources": ["Dockerfile", "apps/cli/src/service/index.ts"],
-      "tests": ["apps/web/e2e/tests/docker/docker-launch.spec.ts", "apps/cli/src/service/install_helpers.test.ts"]
+      "sources": ["Dockerfile", "apps/backend/internal/launcher/service.go"],
+      "tests": ["apps/web/e2e/tests/docker/docker-launch.spec.ts"]
     },
     {
       "id": "office-mode",
