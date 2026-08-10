@@ -314,23 +314,43 @@ func (c *GitHubOAuthClient) UserCanAccessInstallation(
 	accessToken string,
 	installationID int64,
 ) (bool, error) {
-	endpoint := fmt.Sprintf("/user/installations/%d", installationID)
-	request, err := c.apiRequest(ctx, http.MethodGet, endpoint, accessToken)
-	if err != nil {
-		return false, err
+	const pageSize = 100
+	seen := 0
+	for page := 1; ; page++ {
+		endpoint := fmt.Sprintf("/user/installations?per_page=%d&page=%d", pageSize, page)
+		request, err := c.apiRequest(ctx, http.MethodGet, endpoint, accessToken)
+		if err != nil {
+			return false, err
+		}
+		response, err := c.httpClient.Do(request)
+		if err != nil {
+			return false, fmt.Errorf("request GitHub user installations: %w", err)
+		}
+		if response.StatusCode >= http.StatusBadRequest {
+			_ = response.Body.Close()
+			return false, &GitHubAPIError{StatusCode: response.StatusCode, Endpoint: endpoint}
+		}
+		var body struct {
+			TotalCount    int `json:"total_count"`
+			Installations []struct {
+				ID int64 `json:"id"`
+			} `json:"installations"`
+		}
+		decodeErr := json.NewDecoder(io.LimitReader(response.Body, maxGitHubAppResponseSize)).Decode(&body)
+		_ = response.Body.Close()
+		if decodeErr != nil {
+			return false, fmt.Errorf("decode GitHub user installations: %w", decodeErr)
+		}
+		for _, installation := range body.Installations {
+			if installation.ID == installationID {
+				return true, nil
+			}
+		}
+		seen += len(body.Installations)
+		if len(body.Installations) < pageSize || (body.TotalCount > 0 && seen >= body.TotalCount) {
+			return false, nil
+		}
 	}
-	response, err := c.httpClient.Do(request)
-	if err != nil {
-		return false, fmt.Errorf("request GitHub user installation: %w", err)
-	}
-	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode == http.StatusNotFound {
-		return false, nil
-	}
-	if response.StatusCode >= http.StatusBadRequest {
-		return false, &GitHubAPIError{StatusCode: response.StatusCode, Endpoint: endpoint}
-	}
-	return true, nil
 }
 
 func (c *GitHubOAuthClient) exchangeTokens(ctx context.Context, form url.Values) (GitHubOAuthTokens, error) {
