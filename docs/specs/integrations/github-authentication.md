@@ -1,7 +1,7 @@
 ---
 status: building
 created: 2026-07-19
-amended: 2026-08-07
+amended: 2026-08-10
 owner: Kandev
 ---
 
@@ -162,6 +162,12 @@ select **Inherit executor Git credentials** explicitly.
 An App-only workspace without personal OAuth remains usable for automation and App-attributed
 mutations. `My GitHub` instead offers a personal connection created with the same App registration
 as the workspace installation.
+
+App-installation and personal OAuth callbacks prove the authorizing user's association by finding
+the callback installation ID in GitHub's complete paginated list of App installations accessible
+to the temporary user access token. Kandev requests up to 100 installations per page, checks every
+returned installation ID until it finds the target or exhausts the list, and never treats an
+undocumented per-installation user endpoint as an authorization source.
 
 ## GitHub App Policy
 
@@ -327,7 +333,9 @@ before exposing registration management.
   single-use flow, and returns the registration-specific GitHub installation URL.
 - `GET /api/v1/github/app/registrations/:registrationId/install/callback` verifies state, App,
   installation, authorizing user, and owner association before atomically replacing workspace
-  automation. Failure leaves the previous automation connection unchanged.
+  automation. The user/installation association check paginates
+  `GET /user/installations?per_page=100&page=<page>` with the exchanged user token. Failure leaves
+  the previous automation connection unchanged.
 - `DELETE /api/v1/github/workspace-connection?workspace_id=<id>` removes workspace secret material
   and the App installation binding but never deletes or uninstalls the registration.
 - `POST /api/v1/github/app/registrations/:registrationId/webhook` is public. It chooses exactly that
@@ -438,6 +446,10 @@ post-signature processing failures produce `failing`; a later valid successful d
 - A duplicate import directs the user to select the known registration instead of storing another
   copy of its root credentials.
 - Callback route/state/registration/workspace mismatches fail closed and consume no unrelated flow.
+- A successful, exhaustively paginated user-installation response that omits a newly installed App
+  may be retried with the existing bounded callback backoff. Exhaustion still rejects the callback
+  and preserves the previous workspace connection. GitHub HTTP failures or malformed collection
+  responses fail closed as verification errors rather than being converted into "not accessible."
 - An invalid webhook signature performs no delivery claim, health update, or connection mutation.
 - Missing App permissions produce capability-specific diagnostics; unrelated capabilities continue
   to work.
@@ -582,6 +594,12 @@ registration and never creates a global default.
   and the confirmation explains that installation approval still controls repository access.
 - **GIVEN** a correctly configured existing App, **WHEN** the import is verified, **THEN** it appears
   in the workspace chooser without becoming the active connection until installation succeeds.
+- **GIVEN** the callback installation appears on a later page of the authorizing user's accessible
+  App-installation list, **WHEN** Kandev verifies the installation callback, **THEN** it follows the
+  collection pagination, finds the matching installation ID, and may save the workspace connection.
+- **GIVEN** every successfully fetched page omits the callback installation ID, **WHEN** the bounded
+  visibility retry is exhausted, **THEN** Kandev rejects the callback and preserves the previous
+  workspace connection.
 - **GIVEN** an imported App misses a required GitHub setting, **WHEN** validation or installation
   runs, **THEN** the guide identifies the exact setting without returning submitted secrets.
 - **GIVEN** App creation, import, or installation is canceled, **WHEN** the user returns, **THEN** the
