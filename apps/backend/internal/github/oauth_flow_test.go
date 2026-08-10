@@ -164,8 +164,17 @@ func TestOAuthFlowGitHubClientExchangesRefreshesAndVerifiesUser(t *testing.T) {
 				t.Fatalf("Authorization = %q", r.Header.Get("Authorization"))
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"id": 11, "login": "octocat"})
+		case "/user/installations":
+			if r.URL.Query().Get("per_page") != "100" || r.URL.Query().Get("page") != "1" {
+				t.Errorf("installation list query = %v", r.URL.Query())
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"total_count":   1,
+				"installations": []map[string]any{{"id": 42}},
+			})
 		case "/user/installations/42":
-			w.WriteHeader(http.StatusOK)
+			t.Errorf("requested undocumented installation endpoint %q", r.URL.Path)
+			http.NotFound(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -199,4 +208,85 @@ func TestOAuthFlowGitHubClientExchangesRefreshesAndVerifiesUser(t *testing.T) {
 	if err != nil || accessible {
 		t.Fatalf("missing UserCanAccessInstallation() = %v, %v", accessible, err)
 	}
+}
+
+func TestGitHubOAuthClientUserCanAccessInstallationPaginates(t *testing.T) {
+	requestedPages := make([]string, 0, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/user/installations" || r.URL.Query().Get("per_page") != "100" {
+			t.Errorf("installation list request = %s?%s", r.URL.Path, r.URL.RawQuery)
+			http.NotFound(w, r)
+			return
+		}
+		page := r.URL.Query().Get("page")
+		requestedPages = append(requestedPages, page)
+		switch page {
+		case "1":
+			installations := make([]map[string]int64, 100)
+			for index := range installations {
+				installations[index] = map[string]int64{"id": int64(index + 1)}
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"total_count":   101,
+				"installations": installations,
+			})
+		case "2":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"total_count":   101,
+				"installations": []map[string]int64{{"id": 142}},
+			})
+		default:
+			t.Errorf("unexpected installation list page %q", page)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := NewGitHubOAuthClient("client-id", "client-secret")
+	client.apiBaseURL = server.URL
+	client.httpClient = server.Client()
+	accessible, err := client.UserCanAccessInstallation(context.Background(), "access", 142)
+	if err != nil || !accessible {
+		t.Fatalf("UserCanAccessInstallation() = %v, %v, want later-page match", accessible, err)
+	}
+	accessible, err = client.UserCanAccessInstallation(context.Background(), "access", 999)
+	if err != nil || accessible {
+		t.Fatalf("missing UserCanAccessInstallation() = %v, %v", accessible, err)
+	}
+	if got, want := strings.Join(requestedPages, ","), "1,2,1,2"; got != want {
+		t.Fatalf("requested pages = %q, want %q", got, want)
+	}
+}
+
+func TestGitHubOAuthClientUserCanAccessInstallationFailsClosed(t *testing.T) {
+	t.Run("GitHub API error", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusForbidden)
+		}))
+		defer server.Close()
+
+		client := NewGitHubOAuthClient("client-id", "client-secret")
+		client.apiBaseURL = server.URL
+		client.httpClient = server.Client()
+		accessible, err := client.UserCanAccessInstallation(context.Background(), "access", 42)
+		var apiErr *GitHubAPIError
+		if accessible || !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusForbidden {
+			t.Fatalf("UserCanAccessInstallation() = %v, %v, want GitHub API 403", accessible, err)
+		}
+	})
+
+	t.Run("malformed collection", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte("{"))
+		}))
+		defer server.Close()
+
+		client := NewGitHubOAuthClient("client-id", "client-secret")
+		client.apiBaseURL = server.URL
+		client.httpClient = server.Client()
+		accessible, err := client.UserCanAccessInstallation(context.Background(), "access", 42)
+		if accessible || err == nil || !strings.Contains(err.Error(), "decode GitHub user installations") {
+			t.Fatalf("UserCanAccessInstallation() = %v, %v, want decode error", accessible, err)
+		}
+	})
 }
